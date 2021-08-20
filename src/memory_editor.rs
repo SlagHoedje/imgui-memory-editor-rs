@@ -2,16 +2,15 @@ use std::ffi::c_void;
 
 use imgui::{ImColor32, ImStr, Ui};
 
-
 // TODO: Alias ReadHandlerTrait and writeHandlerTrait to FnMuts once trait_alias is stabilized
-type ReadHandler<'a, T> = Option<Box<dyn FnMut(&T, usize) -> u8 + 'a>>;
+type ReadHandler<'a, T> = Option<Box<dyn FnMut(&mut T, usize) -> u8 + 'a>>;
 type WriteHandler<'a, T> = Option<Box<dyn FnMut(&mut T, usize, u8) + 'a>>;
-type HighlightHandler<'a, T> = Option<Box<dyn FnMut(&T, usize) -> bool + 'a>>;
+type HighlightHandler<'a, T> = Option<Box<dyn FnMut(&mut T, usize) -> bool + 'a>>;
 type MemData<'a, 'b, T> = (
     &'b mut ReadHandler<'a, T>,
     &'b mut WriteHandler<'a, T>,
     &'b mut HighlightHandler<'a, T>,
-    &'b mut T
+    &'b mut T,
 );
 
 pub struct MemoryEditor<'a, T> {
@@ -126,19 +125,28 @@ impl<'a, T> MemoryEditor<'a, T> {
     }
     // optional handler to read bytes.
     #[inline]
-    pub fn read_fn<F>(mut self, read_fn: F) -> Self where F: FnMut(&T, usize) -> u8 + 'a {
+    pub fn read_fn<F>(mut self, read_fn: F) -> Self
+    where
+        F: FnMut(&mut T, usize) -> u8 + 'a,
+    {
         self.read_fn = Some(Box::new(read_fn));
         self
     }
     // optional handler to write bytes.
     #[inline]
-    pub fn write_fn<F>(mut self, write_fn: F) -> Self where F: FnMut(&mut T, usize, u8) + 'a {
+    pub fn write_fn<F>(mut self, write_fn: F) -> Self
+    where
+        F: FnMut(&mut T, usize, u8) + 'a,
+    {
         self.write_fn = Some(Box::new(write_fn));
         self
     }
     // optional handler to return Highlight property (to support non-contiguous highlighting).
     #[inline]
-    pub fn highlight_fn<F>(mut self, highlight_fn: F) -> Self where F: FnMut(&T, usize) -> bool + 'a {
+    pub fn highlight_fn<F>(mut self, highlight_fn: F) -> Self
+    where
+        F: FnMut(&mut T, usize) -> bool + 'a,
+    {
         self.highlight_fn = Some(Box::new(highlight_fn));
         self
     }
@@ -168,13 +176,17 @@ impl<'a, T> MemoryEditor<'a, T> {
         );
         self.raw.ReadFn = Some(read_wrapper::<T>);
         self.raw.WriteFn = Some(write_wrapper::<T>);
-        self.raw.HighlightFn = if self.highlight_fn.is_some() { Some(highlight_wrapper::<T>) } else { None };
+        self.raw.HighlightFn = if self.highlight_fn.is_some() {
+            Some(highlight_wrapper::<T>)
+        } else {
+            None
+        };
 
         let mut data = (
             &mut self.read_fn,
             &mut self.write_fn,
             &mut self.highlight_fn,
-            user_data
+            user_data,
         );
         let mem_data = &mut data as *mut MemData<T> as *mut c_void;
         unsafe { self.draw_raw(mem_data) }
@@ -190,19 +202,17 @@ impl<'a, T> MemoryEditor<'a, T> {
                 self.base_addr,
             );
         } else {
-            sys::Editor_DrawContents(
-                &mut self.raw,
-                mem_data,
-                self.mem_size,
-                self.base_addr,
-            );
+            sys::Editor_DrawContents(&mut self.raw, mem_data, self.mem_size, self.base_addr);
         }
     }
 }
 
 impl<'a> MemoryEditor<'a, &[u8]> {
     pub fn draw_vec(&mut self, _: &Ui, data: &[u8]) {
-        assert!(!self.raw.ReadOnly, "Data muse be a mutable slice if editor is not read only");
+        assert!(
+            !self.raw.ReadOnly,
+            "Data muse be a mutable slice if editor is not read only"
+        );
         // TODO: Support highlight fn
         assert!(
             self.read_fn.is_none() && self.write_fn.is_none() && self.highlight_fn.is_none(),
@@ -212,7 +222,6 @@ impl<'a> MemoryEditor<'a, &[u8]> {
         unsafe { self.draw_raw(data.as_ptr() as *mut c_void) }
     }
 }
-
 
 // Convenience implementations
 impl<'a> MemoryEditor<'a, &mut [u8]> {
